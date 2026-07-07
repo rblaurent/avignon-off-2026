@@ -1,132 +1,190 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import showsData from './shows.json'
 
 type Show = typeof showsData[number]
+type SlotKey = '12-matin' | '12-aprem' | '12-soir' | '13-matin' | '13-aprem' | '13-soir'
+const SLOTS: { key: SlotKey; label: string; minH: number; maxH: number }[] = [
+  { key: '12-matin', label: 'Sam 12 · Matin', minH: 0, maxH: 12 },
+  { key: '12-aprem', label: 'Sam 12 · Début AM', minH: 13, maxH: 17 },
+  { key: '12-soir',  label: 'Sam 12 · Soir', minH: 18, maxH: 99 },
+  { key: '13-matin', label: 'Dim 13 · Matin', minH: 0, maxH: 12 },
+  { key: '13-aprem', label: 'Dim 13 · Début AM', minH: 13, maxH: 17 },
+  { key: '13-soir',  label: 'Dim 13 · Soir', minH: 18, maxH: 99 },
+]
 
-const PAGE_SIZE = 60
+function parseHour(h: string | null) {
+  if (!h) return null
+  const m = h.match(/(\d{1,2})h(\d{0,2})/)
+  return m ? parseInt(m[1]) + (parseInt(m[2]||'0')/60) : null
+}
+function playsOn(show: Show, day: 12|13) {
+  const dates = show.dates || ''
+  const rel = show.relache || ''
+  // crude: "4 au 25 juillet" etc.
+  const m = dates.match(/(\d{1,2}).*?(\d{1,2})/)
+  if (!m) return true
+  const start = parseInt(m[1]), end = parseInt(m[2])
+  if (day < start || day > end) return false
+  return !rel.includes(String(day))
+}
+function fitsSlot(show: Show, slot: typeof SLOTS[number]) {
+  const h = parseHour(show.heure)
+  return h === null || (h >= slot.minH && h <= slot.maxH)
+}
 
 export default function App() {
   const [search, setSearch] = useState('')
-  const [genreFilter, setGenreFilter] = useState('')
-  const [theatreFilter, setTheatreFilter] = useState('')
-  const [sortKey, setSortKey] = useState<'coup_coeur'|'name'|'heure'>('coup_coeur')
-  const [page, setPage] = useState(1)
+  const [genre, setGenre] = useState('')
+  const [onlyAvailable, setOnlyAvailable] = useState(true)
+  const [fav, setFav] = useState<string[]>(() => JSON.parse(localStorage.getItem('avignon_fav') || '[]'))
+  const [plan, setPlan] = useState<Record<SlotKey, string | null>>(() => JSON.parse(localStorage.getItem('avignon_plan') || '{"12-matin":null,"12-aprem":null,"12-soir":null,"13-matin":null,"13-aprem":null,"13-soir":null}'))
   const [selected, setSelected] = useState<Show | null>(null)
+  const [viewFav, setViewFav] = useState(false)
+
+  useEffect(() => { localStorage.setItem('avignon_fav', JSON.stringify(fav)) }, [fav])
+  useEffect(() => { localStorage.setItem('avignon_plan', JSON.stringify(plan)) }, [plan])
 
   const genres = useMemo(() => [...new Set(showsData.map(s => s.genre).filter(Boolean))].sort(), [])
-  const theatres = useMemo(() => [...new Set(showsData.map(s => s.theatre_name).filter(Boolean))].sort(), [])
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase()
     let r = showsData as Show[]
-    if (q) r = r.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      (s.genre||'').toLowerCase().includes(q) ||
-      (s.theatre_name||'').toLowerCase().includes(q) ||
-      (s.auteur||'').toLowerCase().includes(q) ||
-      (s.content||'').toLowerCase().includes(q)
-    )
-    if (genreFilter) r = r.filter(s => s.genre === genreFilter)
-    if (theatreFilter) r = r.filter(s => s.theatre_name === theatreFilter)
-    if (sortKey === 'coup_coeur') r = [...r].sort((a,b) => (b.coup_coeur||0)-(a.coup_coeur||0))
-    else if (sortKey === 'heure') r = [...r].sort((a,b) => (a.heure||'').localeCompare(b.heure||''))
-    else r = [...r].sort((a,b) => a.name.localeCompare(b.name))
-    return r
-  }, [search, genreFilter, theatreFilter, sortKey])
+    if (viewFav) r = r.filter(s => fav.includes(s.id))
+    if (onlyAvailable) r = r.filter(s => playsOn(s,12) || playsOn(s,13))
+    const q = search.toLowerCase()
+    if (q) r = r.filter(s => (s.name + s.genre + s.theatre_name + s.auteur + s.content).toLowerCase().includes(q))
+    if (genre) r = r.filter(s => s.genre === genre)
+    return r.sort((a,b)=>(b.coup_coeur||0)-(a.coup_coeur||0))
+  }, [search, genre, onlyAvailable, viewFav, fav])
 
-  const pageCount = Math.ceil(filtered.length / PAGE_SIZE)
-  const visible = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE)
-
-  const reset = () => { setSearch(''); setGenreFilter(''); setTheatreFilter(''); setPage(1) }
+  const toggleFav = (id: string) => setFav(f => f.includes(id) ? f.filter(x=>x!==id) : [...f, id])
+  const assignSlot = (slot: SlotKey, showId: string | null) => setPlan(p => ({...p, [slot]: showId}))
+  const showById = (id: string | null) => showsData.find(s=>s.id===id) || null
 
   return (
-    <div className="h-screen flex flex-col bg-[#1a1a20] text-zinc-200">
-      <header className="px-4 pt-4 pb-3 border-b border-zinc-800 space-y-2 shrink-0 bg-[#1a1a20]">
-        <div className="relative">
-          <i className="ph-fill ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm" />
-          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1)}}
-            placeholder="Rechercher titre, genre, théâtre, auteur…"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-orange-500"/>
-          {search && <button onClick={()=>setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500">✕</button>}
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <select value={genreFilter} onChange={e=>{setGenreFilter(e.target.value);setPage(1)}}
-            className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300">
-            <option value="">Tous les genres</option>
-            {genres.map(g=> <option key={g} value={g}>{g}</option>)}
-          </select>
-          <select value={theatreFilter} onChange={e=>{setTheatreFilter(e.target.value);setPage(1)}}
-            className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 max-w-[220px]">
-            <option value="">Tous les théâtres</option>
-            {theatres.map(t=> <option key={t} value={t}>{t}</option>)}
-          </select>
-          <div className="flex items-center gap-1 ml-auto text-xs">
-            <span className="text-zinc-500">Trier :</span>
-            {(['coup_coeur','name','heure'] as const).map(k =>
-              <button key={k} onClick={()=>{setSortKey(k);setPage(1)}}
-                className={`px-2 py-1 rounded ${sortKey===k ? 'bg-orange-500/15 text-orange-400 font-medium':'text-zinc-400 hover:bg-zinc-800'}`}>
-                {k==='coup_coeur'?'♥ Coup de cœur':k==='name'?'Nom A→Z':'Heure'}
-              </button>)}
-          </div>
-          {(search||genreFilter||theatreFilter) && <button onClick={reset} className="text-xs text-zinc-500 hover:text-zinc-300 ml-1">Réinitialiser</button>}
-        </div>
-        <div className="text-xs text-zinc-500">
-          {filtered.length} résultat{filtered.length>1?'s':''} sur {showsData.length}
-          {pageCount>1 && ` — page ${page}/${pageCount}`}
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto p-4">
-        {filtered.length===0 ? <div className="text-zinc-500 text-center mt-20">Aucun spectacle trouvé</div> :
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-w-7xl mx-auto">
-          {visible.map(s=>(
-            <button key={s.id} onClick={()=>setSelected(s)}
-              className="text-left rounded-lg border border-zinc-800 overflow-hidden hover:border-zinc-700 hover:bg-zinc-800/40 transition-all flex gap-0">
-              <div className="shrink-0 w-20 bg-zinc-800">
-                {s.header_image ? <img src={s.header_image} alt={s.name} className="w-20 h-full object-cover" style={{minHeight:100}} loading="lazy"/> :
-                  <div className="w-20 flex items-center justify-center" style={{minHeight:100}}>🎭</div>}
-              </div>
-              <div className="flex-1 min-w-0 p-2.5">
-                <div className="flex items-start justify-between gap-1 mb-1">
-                  <p className="text-xs font-semibold leading-snug line-clamp-2">{s.name}</p>
-                  {s.coup_coeur>0 && <span className="shrink-0 text-[10px] text-amber-500">♥ {s.coup_coeur}</span>}
-                </div>
-                {s.genre && <span className="text-[10px] px-1.5 py-0.5 bg-zinc-800 rounded mb-1 inline-block text-zinc-400">{s.genre}</span>}
-                {s.theatre_name && <p className="text-[10px] text-zinc-400 truncate">{s.theatre_name}{s.salle?` · ${s.salle}`:''}</p>}
-                <p className="text-[10px] text-zinc-500">{[s.heure,s.duration,s.dates].filter(Boolean).join(' · ')}</p>
-              </div>
+    <div className="min-h-screen bg-[#0f0f14] text-zinc-200 flex">
+      {/* main browse */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="sticky top-0 z-30 bg-[#0f0f14]/90 backdrop-blur border-b border-zinc-800 px-6 py-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <h1 className="text-xl font-bold tracking-tight">Avignon Off <span className="text-zinc-500 font-normal">2026</span></h1>
+            <div className="flex-1 min-w-[240px] relative max-w-xl">
+              <i className="ph-fill ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Titre, genre, théâtre, auteur…"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-full pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-zinc-600"/>
+            </div>
+            <select value={genre} onChange={e=>setGenre(e.target.value)}
+              className="text-sm bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2">
+              <option value="">Tous genres</option>
+              {genres.map(g=><option key={g} value={g}>{g}</option>)}
+            </select>
+            <label className="text-xs text-zinc-400 flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={onlyAvailable} onChange={e=>setOnlyAvailable(e.target.checked)} />
+              12-13 juillet uniquement
+            </label>
+            <button onClick={()=>setViewFav(!viewFav)}
+              className={`text-sm px-4 py-2 rounded-full border transition ${viewFav ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+              ♥ Favoris {fav.length>0 && `(${fav.length})`}
             </button>
-          ))}
-        </div>}
-        {pageCount>1 && <div className="flex justify-center gap-2 mt-6 text-xs">
-          <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page<=1} className="px-3 py-1.5 rounded border border-zinc-700 disabled:opacity-40">← Précédent</button>
-          <span className="px-2 py-1.5 text-zinc-400">{page} / {pageCount}</span>
-          <button onClick={()=>setPage(p=>Math.min(pageCount,p+1))} disabled={page>=pageCount} className="px-3 py-1.5 rounded border border-zinc-700 disabled:opacity-40">Suivant →</button>
-        </div>}
-      </main>
+          </div>
+          <div className="text-xs text-zinc-500 mt-2">{filtered.length} spectacles</div>
+        </header>
 
+        <main className="px-6 py-6">
+          <div className="grid gap-5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+            {filtered.slice(0,200).map(s => {
+              const isFav = fav.includes(s.id)
+              return (
+                <div key={s.id} className="group cursor-pointer" onClick={()=>setSelected(s)}>
+                  <div className="relative aspect-[3/4] rounded-xl overflow-hidden bg-zinc-900 shadow-lg">
+                    {s.header_image
+                      ? <img src={s.header_image} alt={s.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-300"/>
+                      : <div className="w-full h-full flex items-center justify-center text-zinc-600">🎭</div>}
+                    <button onClick={e=>{e.stopPropagation();toggleFav(s.id)}}
+                      className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur transition ${isFav ? 'bg-rose-500 text-white' : 'bg-black/50 text-white hover:bg-black/70'}`}>♥</button>
+                    {s.coup_coeur>0 && <div className="absolute top-2 left-2 text-[11px] bg-amber-500 text-black px-1.5 py-0.5 rounded-full font-semibold">♥ {s.coup_coeur}</div>}
+                    <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/90 to-transparent">
+                      <div className="text-[11px] text-zinc-300">{s.genre}</div>
+                      <div className="font-semibold text-sm leading-tight line-clamp-2">{s.name}</div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">{s.heure} · {s.duration}</div>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-1.5 truncate">{s.theatre_name}</div>
+                </div>
+              )
+            })}
+          </div>
+          {filtered.length>200 && <div className="text-center text-zinc-500 text-sm mt-6">Affichage des 200 premiers — affine ta recherche</div>}
+        </main>
+      </div>
+
+      {/* planner sidebar */}
+      <aside className="w-[340px] shrink-0 border-l border-zinc-800 bg-[#14141b] p-5 h-screen sticky top-0 overflow-y-auto">
+        <h2 className="font-semibold mb-1">Mon planning</h2>
+        <p className="text-xs text-zinc-500 mb-4">12-13 juillet · 6 créneaux</p>
+        <div className="space-y-3">
+          {SLOTS.map(slot => {
+            const assigned = showById(plan[slot.key])
+            return (
+              <div key={slot.key} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 min-h-[88px]">
+                <div className="text-[11px] text-zinc-400 mb-1">{slot.label}</div>
+                {assigned ? (
+                  <div className="flex gap-2">
+                    <img src={assigned.header_image} className="w-10 h-14 object-cover rounded" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium truncate">{assigned.name}</div>
+                      <div className="text-[11px] text-zinc-400">{assigned.heure} · {assigned.theatre_name}</div>
+                      <button onClick={()=>assignSlot(slot.key,null)} className="text-[11px] text-zinc-500 hover:text-zinc-300 mt-1">retirer</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-600">— vide —</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {Object.values(plan).filter(Boolean).length > 0 && (
+          <button onClick={()=>{ if(confirm('Vider le planning ?')) setPlan({ '12-matin':null,'12-aprem':null,'12-soir':null,'13-matin':null,'13-aprem':null,'13-soir':null }) }}
+            className="text-xs text-zinc-500 mt-4 hover:text-zinc-300">Réinitialiser</button>
+        )}
+        <div className="text-[11px] text-zinc-600 mt-6">Favoris + planning stockés localement. Partageable via export.</div>
+      </aside>
+
+      {/* detail modal */}
       {selected && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" onClick={()=>setSelected(null)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={e=>e.stopPropagation()}>
-            <div className="flex justify-between items-start gap-4 mb-3">
-              <h2 className="text-lg font-semibold">{selected.name}</h2>
-              <button onClick={()=>setSelected(null)} className="text-zinc-500 hover:text-zinc-200">✕</button>
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={()=>setSelected(null)}>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-3xl w-full max-h-[88vh] overflow-y-auto flex flex-col md:flex-row" onClick={e=>e.stopPropagation()}>
+            {selected.header_image && <img src={selected.header_image} className="md:w-64 w-full h-64 md:h-auto object-cover" />}
+            <div className="p-5 flex-1 min-w-0">
+              <div className="flex justify-between gap-3">
+                <h2 className="text-lg font-bold">{selected.name}</h2>
+                <button onClick={()=>setSelected(null)} className="text-zinc-500">✕</button>
+              </div>
+              <div className="text-sm text-zinc-400 mb-2">{selected.genre} · {selected.heure} · {selected.duration}</div>
+              <p className="text-sm text-zinc-300 whitespace-pre-wrap mb-3">{selected.content}</p>
+              <div className="text-xs text-zinc-400 space-y-1 mb-3">
+                <div>{selected.theatre_name} {selected.salle && `· ${selected.salle}`}</div>
+                <div>{selected.dates}{selected.relache && ` · relâche ${selected.relache}`}</div>
+                {selected.auteur && <div>Auteur : {selected.auteur}</div>}
+              </div>
+              <div className="flex gap-2 flex-wrap mb-3">
+                <button onClick={()=>toggleFav(selected.id)}
+                  className={`px-3 py-1.5 rounded-full text-sm ${fav.includes(selected.id) ? 'bg-rose-500 text-white' : 'bg-zinc-800 text-zinc-300'}`}>
+                  ♥ {fav.includes(selected.id) ? 'Favori' : 'Ajouter'}
+                </button>
+                {SLOTS.map(slot => {
+                  const ok = fitsSlot(selected, slot) && (playsOn(selected, slot.key.startsWith('12')?12:13))
+                  return <button key={slot.key} disabled={!ok} onClick={() => { assignSlot(slot.key, selected.id); setSelected(null)}}
+                    className={`px-2.5 py-1 rounded text-[11px] border ${ok ? 'border-zinc-700 hover:bg-zinc-800 text-zinc-300' : 'border-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
+                    {slot.label.split(' · ')[1]}
+                  </button>
+                })}
+              </div>
+              {selected.off_url && <a href={selected.off_url} target="_blank" className="text-orange-400 text-sm hover:underline">Voir sur festivaloffavignon.com →</a>}
             </div>
-            {selected.header_image && <img src={selected.header_image} className="rounded mb-3 max-h-56 object-cover w-full" />}
-            <p className="text-sm text-zinc-300 mb-3 whitespace-pre-wrap">{selected.content}</p>
-            <div className="text-xs text-zinc-400 space-y-1">
-              {selected.auteur && <div><b>Auteur :</b> {selected.auteur}</div>}
-              {selected.equipe && <div><b>Équipe :</b> {selected.equipe}</div>}
-              <div><b>Lieu :</b> {selected.theatre_name} {selected.salle && `· ${selected.salle}`}</div>
-              <div><b>Horaire :</b> {selected.heure} · {selected.duration} · {selected.dates}{selected.relache && ` · relâche ${selected.relache}`}</div>
-              {selected.tarifs && <div><b>Tarifs :</b> {selected.tarifs}</div>}
-              {selected.accessibility && <div><b>Accessibilité :</b> {selected.accessibility}</div>}
-            </div>
-            {selected.off_url && <a href={selected.off_url} target="_blank" className="inline-block mt-4 text-orange-400 text-sm hover:underline">Voir sur festivaloffavignon.com →</a>}
           </div>
         </div>
       )}
-      <footer className="text-center text-[11px] text-zinc-600 py-2 border-t border-zinc-800">Avignon Off 2026 — 1908 spectacles · export statique</footer>
     </div>
   )
 }
