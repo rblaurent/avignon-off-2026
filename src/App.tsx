@@ -4,12 +4,12 @@ import showsData from './shows.json'
 type Show = typeof showsData[number]
 type SlotKey = '12-matin' | '12-aprem' | '12-soir' | '13-matin' | '13-aprem' | '13-soir'
 const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; time: string; minH: number; maxH: number }[] = [
-  { key: '12-matin', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Matin', time: '10h – 13h', minH: 0, maxH: 12 },
-  { key: '12-aprem', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Après-midi', time: '13h – 17h', minH: 13, maxH: 17 },
-  { key: '12-soir',  dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Soirée', time: '18h +', minH: 18, maxH: 99 },
-  { key: '13-matin', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Matin', time: '10h – 13h', minH: 0, maxH: 12 },
-  { key: '13-aprem', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Après-midi', time: '13h – 17h', minH: 13, maxH: 17 },
-  { key: '13-soir',  dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Soirée', time: '18h +', minH: 18, maxH: 99 },
+  { key: '12-matin', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
+  { key: '12-aprem', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
+  { key: '12-soir',  dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
+  { key: '13-matin', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
+  { key: '13-aprem', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
+  { key: '13-soir',  dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
 
 function parseHour(h: string | null) {
@@ -33,6 +33,7 @@ function fitsSlot(show: Show, slot: typeof SLOTS[number]) {
 export default function App() {
   const [search, setSearch] = useState('')
   const [genre, setGenre] = useState('')
+  const [creneau, setCreneau] = useState<'matin'|'aprem'|'soir'|''>('')
   const [onlyAvailable, setOnlyAvailable] = useState(true)
   const [fav, setFav] = useState<string[]>(() => JSON.parse(localStorage.getItem('avignon_fav') || '[]'))
   const [plan, setPlan] = useState<Record<SlotKey, string | null>>(() => JSON.parse(localStorage.getItem('avignon_plan') || '{"12-matin":null,"12-aprem":null,"12-soir":null,"13-matin":null,"13-aprem":null,"13-soir":null}'))
@@ -53,8 +54,15 @@ export default function App() {
     const q = search.toLowerCase()
     if (q) r = r.filter(s => (s.name + s.genre + s.theatre_name + s.auteur + s.content).toLowerCase().includes(q))
     if (genre) r = r.filter(s => s.genre === genre)
+    if (creneau) r = r.filter(s => {
+      const h = parseHour(s.heure)
+      if (h === null) return true
+      if (creneau==='matin') return h < 12
+      if (creneau==='aprem') return h >= 12 && h < 15.5
+      return h >= 15.5
+    })
     return r.sort((a,b)=>(b.coup_coeur||0)-(a.coup_coeur||0))
-  }, [search, genre, onlyAvailable, viewFav, fav])
+  }, [search, genre, creneau, onlyAvailable, viewFav, fav])
 
   const toggleFav = (id: string) => {
     const adding = !fav.includes(id)
@@ -151,6 +159,14 @@ export default function App() {
                   className="text-[12.5px] sm:text-[13.5px] bg-[#1a1a24] border border-zinc-800 rounded-full px-3.5 sm:px-5 py-[10px] sm:py-[13px] text-zinc-300 focus:outline-none focus:border-zinc-600 max-w-[150px] sm:max-w-none">
                   <option value="">Tous les genres</option>
                   {genres.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+
+                <select value={creneau} onChange={e=>setCreneau(e.target.value as any)}
+                  className="text-[12.5px] sm:text-[13.5px] bg-[#1a1a24] border border-zinc-800 rounded-full px-3.5 sm:px-5 py-[10px] sm:py-[13px] text-zinc-300 focus:outline-none focus:border-zinc-600">
+                  <option value="">Tous créneaux</option>
+                  <option value="matin">Matin &lt; 12h</option>
+                  <option value="aprem">Après-midi 12h–15h30</option>
+                  <option value="soir">Soirée 15h30+</option>
                 </select>
 
                 <button onClick={()=>setViewFav(!viewFav)}
