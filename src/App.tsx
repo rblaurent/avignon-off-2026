@@ -19,17 +19,19 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
   const dragRef = useRef<{ startX: number, startY: number, x: number, decided: boolean, isSwipe: boolean | null } | null>(null)
   const [dx, setDx] = useState(0)
   const [exit, setExit] = useState<'left'|'right'|null>(null)
+  const swipedIdRef = useRef<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const threshold = 80
   const show = pool[0] || null
 
-  useEffect(() => { setDx(0); setExit(null); dragRef.current = null }, [show?.id])
+  useEffect(() => { setDx(0); setExit(null); swipedIdRef.current = null; dragRef.current = null }, [show?.id])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [show?.id])
 
   const doSwipe = useCallback((dir: 'left'|'right') => {
     if (!show) return
+    swipedIdRef.current = show.id
     setExit(dir)
     setTimeout(() => {
       if (dir === 'right') onLike(show.id); else onNope(show.id)
@@ -92,7 +94,8 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
     }
   }, [doSwipe, exit])
 
-  const activeDx = exit === 'left' ? -window.innerWidth : exit === 'right' ? window.innerWidth : dx
+  const isNewCard = exit && show && show.id !== swipedIdRef.current
+  const activeDx = isNewCard ? 0 : exit === 'left' ? -window.innerWidth : exit === 'right' ? window.innerWidth : dx
   const rotate = activeDx * 0.04
   const likeOpacity = Math.max(0, Math.min(1, activeDx / threshold))
   const nopeOpacity = Math.max(0, Math.min(1, -activeDx / threshold))
@@ -131,8 +134,8 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
             className="absolute inset-0"
             style={{
               transform: `translateX(${activeDx}px) rotate(${rotate}deg)`,
-              transition: exit ? 'transform 0.28s ease-out, opacity 0.28s' : dx ? 'none' : 'transform 0.2s ease-out',
-              opacity: exit ? 0.4 : 1,
+              transition: isNewCard ? 'none' : exit ? 'transform 0.28s ease-out, opacity 0.28s' : dx ? 'none' : 'transform 0.2s ease-out',
+              opacity: isNewCard ? 1 : exit ? 0.4 : 1,
               transformOrigin: 'center 80%',
             }}
           >
