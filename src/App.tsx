@@ -33,7 +33,6 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
     setExit(dir)
     setTimeout(() => {
       if (dir === 'right') onLike(show.id); else onNope(show.id)
-      setExit(null); setDx(0)
     }, 280)
   }, [show, onLike, onNope])
 
