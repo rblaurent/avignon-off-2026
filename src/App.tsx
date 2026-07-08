@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import showsData from './shows.json'
 
 type Show = typeof showsData[number]
@@ -11,6 +11,109 @@ const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; t
   { key: '13-aprem', dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
   { key: '13-soir',  dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
+
+function SwipeCard({ show, onSwipe, behind }: { show: Show, onSwipe: (dir: 'left'|'right') => void, behind?: boolean }) {
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [drag, setDrag] = useState<{ startX: number, startY: number, x: number, y: number, swiping: boolean } | null>(null)
+  const [exit, setExit] = useState<'left'|'right'|null>(null)
+
+  const threshold = 100
+
+  const onStart = useCallback((clientX: number, clientY: number) => {
+    setDrag({ startX: clientX, startY: clientY, x: 0, y: 0, swiping: false })
+  }, [])
+
+  const onMove = useCallback((clientX: number, clientY: number) => {
+    setDrag(d => {
+      if (!d) return null
+      const dx = clientX - d.startX
+      const dy = clientY - d.startY
+      if (!d.swiping && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return null
+      return { ...d, x: dx, y: dy * 0.3, swiping: d.swiping || Math.abs(dx) > 10 }
+    })
+  }, [])
+
+  const onEnd = useCallback(() => {
+    if (!drag) return
+    if (Math.abs(drag.x) > threshold) {
+      const dir = drag.x > 0 ? 'right' : 'left' as const
+      setExit(dir)
+      setTimeout(() => onSwipe(dir), 300)
+    }
+    setDrag(null)
+  }, [drag, onSwipe])
+
+  useEffect(() => {
+    if (!drag?.swiping) return
+    const handleMove = (e: TouchEvent) => { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY) }
+    const handleEnd = () => onEnd()
+    window.addEventListener('touchmove', handleMove, { passive: false })
+    window.addEventListener('touchend', handleEnd)
+    return () => { window.removeEventListener('touchmove', handleMove); window.removeEventListener('touchend', handleEnd) }
+  }, [drag?.swiping, onMove, onEnd])
+
+  const dx = exit === 'left' ? -500 : exit === 'right' ? 500 : drag?.x || 0
+  const dy = exit ? -50 : drag?.y || 0
+  const rotate = dx * 0.06
+  const opacity = exit ? 0 : 1
+  const likeOpacity = Math.max(0, Math.min(1, dx / threshold))
+  const nopeOpacity = Math.max(0, Math.min(1, -dx / threshold))
+
+  if (behind) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-[88vw] max-w-[420px] aspect-[3/4] rounded-[24px] bg-zinc-900 ring-1 ring-white/[0.06] scale-[0.94] opacity-60" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 10 }}>
+      <div
+        ref={cardRef}
+        className="w-[88vw] max-w-[420px] aspect-[3/4] rounded-[24px] overflow-hidden bg-zinc-900 ring-1 ring-white/[0.08] shadow-[0_20px_60px_rgba(0,0,0,.7)] select-none touch-pan-y relative"
+        style={{
+          transform: `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`,
+          transition: exit || !drag ? 'transform 0.3s ease, opacity 0.3s ease' : 'none',
+          opacity,
+          cursor: 'grab',
+        }}
+        onTouchStart={e => onStart(e.touches[0].clientX, e.touches[0].clientY)}
+        onMouseDown={e => { e.preventDefault(); onStart(e.clientX, e.clientY) }}
+        onMouseMove={e => { if (drag) onMove(e.clientX, e.clientY) }}
+        onMouseUp={onEnd}
+        onMouseLeave={() => { if (drag) onEnd() }}
+      >
+        {show.header_image
+          ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+          : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-6xl">🎭</div>}
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-90" />
+
+        {/* LIKE stamp */}
+        <div className="absolute top-8 left-6 border-[3px] border-emerald-400 rounded-xl px-4 py-1 rotate-[-15deg] pointer-events-none"
+          style={{ opacity: likeOpacity, transition: drag ? 'none' : 'opacity 0.2s' }}>
+          <span className="text-emerald-400 text-[28px] font-[800] tracking-wider">LIKE</span>
+        </div>
+
+        {/* NOPE stamp */}
+        <div className="absolute top-8 right-6 border-[3px] border-red-400 rounded-xl px-4 py-1 rotate-[15deg] pointer-events-none"
+          style={{ opacity: nopeOpacity, transition: drag ? 'none' : 'opacity 0.2s' }}>
+          <span className="text-red-400 text-[28px] font-[800] tracking-wider">NOPE</span>
+        </div>
+
+        {show.coup_coeur > 0 && <div className="absolute top-4 left-4 text-[11px] bg-amber-300 text-zinc-900 px-2.5 py-[3px] rounded-full font-[600] shadow-md pointer-events-none" style={{ opacity: 1 - likeOpacity - nopeOpacity }}>♥ {show.coup_coeur}</div>}
+
+        <div className="absolute bottom-0 inset-x-0 px-5 pb-5 pt-12 pointer-events-none">
+          <div className="text-[12px] text-zinc-300/85 mb-1">{show.genre || '—'}</div>
+          <div className="font-[600] text-[22px] leading-snug line-clamp-2 text-white" style={{ fontFamily: '"Fraunces", serif' }}>{show.name}</div>
+          <div className="text-[13px] text-zinc-300/75 mt-2">{show.heure || '—'} {show.duration && `· ${show.duration}`}</div>
+          <div className="text-[12px] text-zinc-400 mt-1">{show.theatre_name}</div>
+          {show.content && <div className="text-[12px] text-zinc-400/80 mt-3 line-clamp-3 leading-relaxed">{show.content}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function parseHour(h: string | null) {
   if (!h) return null
@@ -36,13 +139,17 @@ export default function App() {
   const [creneau, setCreneau] = useState<'matin'|'aprem'|'soir'|''>('')
   const [onlyAvailable, setOnlyAvailable] = useState(true)
   const [fav, setFav] = useState<string[]>(() => JSON.parse(localStorage.getItem('avignon_fav') || '[]'))
+  const [ignored, setIgnored] = useState<string[]>(() => JSON.parse(localStorage.getItem('avignon_ignored') || '[]'))
   const [plan, setPlan] = useState<Record<SlotKey, string | null>>(() => JSON.parse(localStorage.getItem('avignon_plan') || '{"12-matin":null,"12-aprem":null,"12-soir":null,"13-matin":null,"13-aprem":null,"13-soir":null}'))
   const [selected, setSelected] = useState<Show | null>(null)
   const [viewFav, setViewFav] = useState(false)
+  const [viewIgnored, setViewIgnored] = useState(false)
+  const [tinderMode, setTinderMode] = useState(false)
   const [popId, setPopId] = useState<string | null>(null)
   const [showPlan, setShowPlan] = useState(false)
 
   useEffect(() => { localStorage.setItem('avignon_fav', JSON.stringify(fav)) }, [fav])
+  useEffect(() => { localStorage.setItem('avignon_ignored', JSON.stringify(ignored)) }, [ignored])
   useEffect(() => { localStorage.setItem('avignon_plan', JSON.stringify(plan)) }, [plan])
 
   const genres = useMemo(() => [...new Set(showsData.map(s => s.genre).filter(Boolean))].sort(), [])
@@ -50,6 +157,8 @@ export default function App() {
   const filtered = useMemo(() => {
     let r = showsData as Show[]
     if (viewFav) r = r.filter(s => fav.includes(s.id))
+    else if (viewIgnored) r = r.filter(s => ignored.includes(s.id))
+    else r = r.filter(s => !ignored.includes(s.id))
     if (onlyAvailable) r = r.filter(s => playsOn(s,12) || playsOn(s,13))
     const q = search.toLowerCase()
     if (q) r = r.filter(s => (s.name + s.genre + s.theatre_name + s.auteur + s.content).toLowerCase().includes(q))
@@ -62,12 +171,32 @@ export default function App() {
       return h >= 15.5
     })
     return r.sort((a,b)=>(b.coup_coeur||0)-(a.coup_coeur||0))
-  }, [search, genre, creneau, onlyAvailable, viewFav, fav])
+  }, [search, genre, creneau, onlyAvailable, viewFav, viewIgnored, fav, ignored])
+
+  const tinderPool = useMemo(() => {
+    let r = showsData as Show[]
+    r = r.filter(s => !fav.includes(s.id) && !ignored.includes(s.id))
+    if (onlyAvailable) r = r.filter(s => playsOn(s,12) || playsOn(s,13))
+    if (genre) r = r.filter(s => s.genre === genre)
+    if (creneau) r = r.filter(s => {
+      const h = parseHour(s.heure)
+      if (h === null) return true
+      if (creneau==='matin') return h < 12
+      if (creneau==='aprem') return h >= 12 && h < 15.5
+      return h >= 15.5
+    })
+    return r.sort((a,b)=>(b.coup_coeur||0)-(a.coup_coeur||0))
+  }, [fav, ignored, onlyAvailable, genre, creneau])
 
   const toggleFav = (id: string) => {
     const adding = !fav.includes(id)
     setFav(f => f.includes(id) ? f.filter(x=>x!==id) : [...f, id])
+    setIgnored(ig => ig.filter(x => x !== id))
     if (adding) { setPopId(id); setTimeout(()=>setPopId(null), 420) }
+  }
+  const toggleIgnored = (id: string) => {
+    setIgnored(ig => ig.includes(id) ? ig.filter(x=>x!==id) : [...ig, id])
+    setFav(f => f.filter(x => x !== id))
   }
   const assignSlot = (slot: SlotKey, showId: string | null) => setPlan(p => ({...p, [slot]: showId}))
   const showById = (id: string | null) => showsData.find(s=>s.id===id) || null
@@ -169,9 +298,19 @@ export default function App() {
                   <option value="soir">Soirée 15h30+</option>
                 </select>
 
-                <button onClick={()=>setViewFav(!viewFav)}
+                <button onClick={()=>{setViewFav(!viewFav);setViewIgnored(false);setTinderMode(false)}}
                   className={`text-[12.5px] sm:text-[13.5px] px-3.5 sm:px-5 py-[10px] sm:py-[13px] rounded-full border transition ${viewFav ? 'bg-rose-500/95 text-white border-rose-500 shadow-[0_0_28px_rgba(244,63,94,.28)]' : 'border-zinc-800 text-zinc-300 hover:border-zinc-600 bg-[#1a1a24]'}`}>
                   <span className={viewFav ? 'heart-float inline-block' : ''}>♥</span><span className="hidden xs:inline"> Favoris</span> {fav.length>0 && <span className="opacity-75">· {fav.length}</span>}
+                </button>
+
+                <button onClick={()=>{setViewIgnored(!viewIgnored);setViewFav(false);setTinderMode(false)}}
+                  className={`text-[12.5px] sm:text-[13.5px] px-3.5 sm:px-5 py-[10px] sm:py-[13px] rounded-full border transition ${viewIgnored ? 'bg-zinc-600/95 text-white border-zinc-500 shadow-[0_0_28px_rgba(100,100,100,.28)]' : 'border-zinc-800 text-zinc-300 hover:border-zinc-600 bg-[#1a1a24]'}`}>
+                  ✕<span className="hidden xs:inline"> Ignorés</span> {ignored.length>0 && <span className="opacity-75">· {ignored.length}</span>}
+                </button>
+
+                <button onClick={()=>{setTinderMode(!tinderMode);setViewFav(false);setViewIgnored(false)}}
+                  className={`text-[12.5px] sm:text-[13.5px] px-3.5 sm:px-5 py-[10px] sm:py-[13px] rounded-full border transition ${tinderMode ? 'bg-gradient-to-r from-rose-500 to-orange-400 text-white border-rose-500 shadow-[0_0_28px_rgba(244,63,94,.28)]' : 'border-zinc-800 text-zinc-300 hover:border-zinc-600 bg-[#1a1a24]'}`}>
+                  🔥<span className="hidden xs:inline"> Tinder</span>
                 </button>
 
                 <label className="text-[11.5px] sm:text-[13px] text-zinc-400 flex items-center gap-2 cursor-pointer select-none w-full sm:w-auto order-last sm:order-none mt-0.5 sm:mt-0">
@@ -185,19 +324,56 @@ export default function App() {
           </header>
 
           <main className="px-5 sm:px-10 lg:px-14 py-6 sm:py-12">
+            {tinderMode ? (
+              <div className="flex flex-col items-center">
+                <div className="relative w-full max-w-[460px] aspect-[3/4] mb-6">
+                  {tinderPool.length > 1 && <SwipeCard key={'bg-'+tinderPool[1].id} show={tinderPool[1]} onSwipe={()=>{}} behind />}
+                  {tinderPool.length > 0 ? (
+                    <SwipeCard
+                      key={tinderPool[0].id}
+                      show={tinderPool[0]}
+                      onSwipe={(dir) => {
+                        if (dir === 'right') toggleFav(tinderPool[0].id)
+                        else toggleIgnored(tinderPool[0].id)
+                      }}
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center text-zinc-500">
+                        <div className="text-4xl mb-4">🎭</div>
+                        <div className="text-[15px] font-[500]">Plus de spectacles à trier !</div>
+                        <div className="text-[13px] mt-2">{fav.length} favoris · {ignored.length} ignorés</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {tinderPool.length > 0 && (
+                  <div className="flex items-center gap-6">
+                    <button onClick={() => toggleIgnored(tinderPool[0].id)}
+                      className="w-[60px] h-[60px] rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[24px] text-red-400 active:scale-90 transition-transform shadow-lg hover:bg-zinc-700">✕</button>
+                    <div className="text-[13px] text-zinc-500 tabular-nums min-w-[80px] text-center">{tinderPool.length} restants</div>
+                    <button onClick={() => toggleFav(tinderPool[0].id)}
+                      className="w-[60px] h-[60px] rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-[24px] text-emerald-400 active:scale-90 transition-transform shadow-lg hover:bg-emerald-500/30">♥</button>
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className="grid gap-x-4 sm:gap-x-7 gap-y-7 sm:gap-y-11 grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 max-w-[1400px]">
               {filtered.slice(0,200).map(s => {
                 const isFav = fav.includes(s.id)
+                const isIgnored = ignored.includes(s.id)
                 const pop = popId === s.id
                 return (
                   <div key={s.id} className="group cursor-pointer" onClick={()=>setSelected(s)}>
-                    <div className="relative aspect-[4/5] rounded-[16px] sm:rounded-[22px] overflow-hidden bg-zinc-900 shadow-[0_10px_40px_rgba(0,0,0,.5)] ring-1 ring-white/[0.055] group-hover:ring-white/[0.11] transition-all duration-300">
+                    <div className={`relative aspect-[4/5] rounded-[16px] sm:rounded-[22px] overflow-hidden bg-zinc-900 shadow-[0_10px_40px_rgba(0,0,0,.5)] ring-1 ring-white/[0.055] group-hover:ring-white/[0.11] transition-all duration-300 ${isIgnored ? 'opacity-50' : ''}`}>
                       {s.header_image
                         ? <img src={s.header_image} alt={s.name} loading="lazy" className="w-full h-full object-cover transition duration-[600ms] ease-out group-hover:scale-[1.035] group-hover:brightness-[1.06]"/>
                         : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900">🎭</div>}
                       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-[.92]" />
                       <button onClick={e=>{e.stopPropagation();toggleFav(s.id)}}
                         className={`absolute top-2.5 right-2.5 sm:top-4 sm:right-4 w-[34px] h-[34px] sm:w-[40px] sm:h-[40px] rounded-full flex items-center justify-center text-[14px] sm:text-[16px] transition-all backdrop-blur-md ${pop ? 'heart-pop' : ''} ${isFav ? 'bg-rose-500 text-white shadow-[0_0_22px_rgba(244,63,94,.5)] scale-105' : 'bg-black/45 text-zinc-200 active:bg-black/70 ring-1 ring-white/12'}`}>♥</button>
+                      <button onClick={e=>{e.stopPropagation();toggleIgnored(s.id)}}
+                        className={`absolute top-2.5 right-[46px] sm:top-4 sm:right-[52px] w-[34px] h-[34px] sm:w-[40px] sm:h-[40px] rounded-full flex items-center justify-center text-[12px] sm:text-[14px] transition-all backdrop-blur-md ${isIgnored ? 'bg-zinc-600 text-white' : 'bg-black/45 text-zinc-400 active:bg-black/70 ring-1 ring-white/12'}`}>✕</button>
                       {s.coup_coeur>0 && <div className="absolute top-2.5 left-2.5 sm:top-4 sm:left-4 text-[10px] sm:text-[11px] bg-amber-300 text-zinc-900 px-2 sm:px-2.5 py-[2px] sm:py-[3px] rounded-full font-[600] shadow-md">♥ {s.coup_coeur}</div>}
                       <div className="absolute bottom-0 inset-x-0 px-3 sm:px-5 pb-3 sm:pb-5 pt-10">
                         <div className="text-[10.5px] sm:text-[12px] text-zinc-300/85 mb-1 truncate">{s.genre || '—'}</div>
@@ -210,7 +386,8 @@ export default function App() {
                 )
               })}
             </div>
-            {filtered.length>200 && <div className="text-center text-zinc-500 text-sm mt-12">Affichage des 200 premiers — affine ta recherche</div>}
+            )}
+            {!tinderMode && filtered.length>200 && <div className="text-center text-zinc-500 text-sm mt-12">Affichage des 200 premiers — affine ta recherche</div>}
           </main>
         </div>
 
@@ -257,6 +434,10 @@ export default function App() {
                 <button onClick={()=>toggleFav(selected.id)}
                   className={`px-4 py-2 rounded-full text-[13.5px] font-[550] transition ${fav.includes(selected.id) ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,.35)]' : 'bg-zinc-800 text-zinc-200 active:bg-zinc-700'}`}>
                   ♥ {fav.includes(selected.id) ? 'Favori' : 'Ajouter aux favoris'}
+                </button>
+                <button onClick={()=>toggleIgnored(selected.id)}
+                  className={`px-4 py-2 rounded-full text-[13.5px] font-[550] transition ${ignored.includes(selected.id) ? 'bg-zinc-600 text-white' : 'bg-zinc-800 text-zinc-400 active:bg-zinc-700'}`}>
+                  ✕ {ignored.includes(selected.id) ? 'Ignoré' : 'Ignorer'}
                 </button>
               </div>
               <div className="border-t border-zinc-800 pt-3.5 sm:pt-4 mt-3.5 sm:mt-4">
