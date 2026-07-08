@@ -84,7 +84,7 @@ export default function App() {
         <button onClick={()=>setShowPlan(false)} className="lg:hidden text-zinc-400 text-xl px-2 -mr-2">×</button>
       </div>
       <div className="px-5 sm:px-7 py-6 sm:py-7 space-y-7 sm:space-y-8">
-        {(['Samedi 12 juillet','Dimanche 13 juillet'] as const).map((dayLong) => (
+        {(['Dimanche 12 juillet','Lundi 13 juillet'] as const).map((dayLong) => (
           <div key={dayLong}>
             <div className="flex items-center gap-3 mb-3.5">
               <div className="h-px bg-zinc-800 flex-1"></div>
