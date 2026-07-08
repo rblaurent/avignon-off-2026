@@ -26,7 +26,6 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
   const show = pool[0] || null
   const next = pool[1] || null
   const isExiting = exitCard !== null
-  const topShow = isExiting ? exitCard.show : show
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [show?.id])
 
@@ -50,7 +49,7 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
     setTimeout(() => {
       if (dir === 'right') onLike(show.id); else onNope(show.id)
       setExitCard(null)
-    }, 350)
+    }, 400)
   }, [show, isExiting, onLike, onNope])
 
   useEffect(() => {
@@ -151,13 +150,13 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
       </div>
 
       {/* scrollable content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
-        {/* card stack */}
-        <div ref={cardRef} className="relative w-full aspect-[3/4] max-h-[60vh] overflow-hidden select-none">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+        {/* card stack - NO overflow-hidden so exit card can fly off-screen */}
+        <div ref={cardRef} className="relative w-full aspect-[3/4] max-h-[60vh] select-none">
 
           {/* LAYER 1: next card behind (preloaded, scaled down) */}
           {next && (
-            <div className="absolute inset-0" style={{
+            <div className="absolute inset-0 overflow-hidden" style={{
               zIndex: 1,
               transform: `scale(${behindScale})`,
               opacity: behindOpacity,
@@ -172,7 +171,7 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
 
           {/* LAYER 2: current card (follows finger) - hidden during exit */}
           {show && !isExiting && (
-            <div className="absolute inset-0" style={{
+            <div className="absolute inset-0 overflow-hidden" style={{
               zIndex: 2,
               transform: `translateX(${dx}px) rotate(${dragRotate}deg)`,
               transition: dx ? 'none' : 'transform 0.2s ease-out',
@@ -201,9 +200,9 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
             </div>
           )}
 
-          {/* LAYER 3: exiting card (flies off from drag position) */}
+          {/* LAYER 3: exiting card (flies off from drag position, NOT clipped by parent) */}
           {exitCard && (
-            <div className="absolute inset-0" style={{
+            <div className="absolute inset-0 overflow-hidden" style={{
               zIndex: 3,
               transform: `translateX(${exitX}px) rotate(${exitRotate}deg)`,
               transition: exitCard.launched ? 'transform 0.35s ease-in, opacity 0.3s ease-in' : 'none',
