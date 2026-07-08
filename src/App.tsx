@@ -15,63 +15,87 @@ const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; t
 function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
   pool: Show[], onLike: (id: string) => void, onNope: (id: string) => void, onClose: () => void, favCount: number, ignoredCount: number
 }) {
-  const [drag, setDrag] = useState<{ startX: number, startY: number, x: number, y: number, swiping: boolean } | null>(null)
+  const dragRef = useRef<{ startX: number, startY: number, x: number, decided: boolean, isSwipe: boolean | null } | null>(null)
+  const [dx, setDx] = useState(0)
   const [exit, setExit] = useState<'left'|'right'|null>(null)
-  const [entering, setEntering] = useState(true)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const threshold = 80
   const show = pool[0] || null
 
-  useEffect(() => {
-    setEntering(true)
-    const t = setTimeout(() => setEntering(false), 50)
-    return () => clearTimeout(t)
-  }, [show?.id])
-
-  const onStart = useCallback((clientX: number, clientY: number) => {
-    setDrag({ startX: clientX, startY: clientY, x: 0, y: 0, swiping: false })
-  }, [])
-
-  const onMove = useCallback((clientX: number, clientY: number) => {
-    setDrag(d => {
-      if (!d) return null
-      const dx = clientX - d.startX
-      const dy = clientY - d.startY
-      if (!d.swiping && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return null
-      return { ...d, x: dx, y: dy * 0.3, swiping: d.swiping || Math.abs(dx) > 10 }
-    })
-  }, [])
+  useEffect(() => { setDx(0); setExit(null); dragRef.current = null }, [show?.id])
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [show?.id])
 
   const doSwipe = useCallback((dir: 'left'|'right') => {
     if (!show) return
     setExit(dir)
     setTimeout(() => {
       if (dir === 'right') onLike(show.id); else onNope(show.id)
-      setExit(null)
+      setExit(null); setDx(0)
     }, 280)
   }, [show, onLike, onNope])
 
-  const onEnd = useCallback(() => {
-    if (!drag) return
-    if (Math.abs(drag.x) > threshold) {
-      doSwipe(drag.x > 0 ? 'right' : 'left')
-    }
-    setDrag(null)
-  }, [drag, doSwipe])
-
   useEffect(() => {
-    if (!drag?.swiping) return
-    const handleMove = (e: TouchEvent) => { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY) }
-    const handleEnd = () => onEnd()
-    window.addEventListener('touchmove', handleMove, { passive: false })
-    window.addEventListener('touchend', handleEnd)
-    return () => { window.removeEventListener('touchmove', handleMove); window.removeEventListener('touchend', handleEnd) }
-  }, [drag?.swiping, onMove, onEnd])
+    const card = cardRef.current
+    if (!card) return
 
-  const dx = exit === 'left' ? -window.innerWidth : exit === 'right' ? window.innerWidth : drag?.x || 0
-  const rotate = dx * 0.04
-  const likeOpacity = Math.max(0, Math.min(1, dx / threshold))
-  const nopeOpacity = Math.max(0, Math.min(1, -dx / threshold))
+    const onTouchStart = (e: TouchEvent) => {
+      if (exit) return
+      const t = e.touches[0]
+      dragRef.current = { startX: t.clientX, startY: t.clientY, x: 0, decided: false, isSwipe: null }
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const d = dragRef.current
+      if (!d) return
+      const t = e.touches[0]
+      const tdx = t.clientX - d.startX
+      const tdy = t.clientY - d.startY
+
+      if (!d.decided && (Math.abs(tdx) > 10 || Math.abs(tdy) > 10)) {
+        d.decided = true
+        d.isSwipe = Math.abs(tdx) > Math.abs(tdy)
+      }
+
+      if (d.decided && !d.isSwipe) {
+        dragRef.current = null
+        setDx(0)
+        return
+      }
+
+      if (d.isSwipe) {
+        e.preventDefault()
+        d.x = tdx
+        setDx(tdx)
+      }
+    }
+
+    const onTouchEnd = () => {
+      const d = dragRef.current
+      if (!d) return
+      if (d.isSwipe && Math.abs(d.x) > threshold) {
+        doSwipe(d.x > 0 ? 'right' : 'left')
+      } else {
+        setDx(0)
+      }
+      dragRef.current = null
+    }
+
+    card.addEventListener('touchstart', onTouchStart, { passive: true })
+    card.addEventListener('touchmove', onTouchMove, { passive: false })
+    card.addEventListener('touchend', onTouchEnd, { passive: true })
+    return () => {
+      card.removeEventListener('touchstart', onTouchStart)
+      card.removeEventListener('touchmove', onTouchMove)
+      card.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [doSwipe, exit])
+
+  const activeDx = exit === 'left' ? -window.innerWidth : exit === 'right' ? window.innerWidth : dx
+  const rotate = activeDx * 0.04
+  const likeOpacity = Math.max(0, Math.min(1, activeDx / threshold))
+  const nopeOpacity = Math.max(0, Math.min(1, -activeDx / threshold))
 
   if (!show) {
     return (
@@ -85,9 +109,9 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col overflow-hidden" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
+    <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
       {/* top bar */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 relative z-20">
+      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 relative z-20 bg-[#0f0f16]">
         <button onClick={onClose} className="text-zinc-400 text-[14px] flex items-center gap-1.5 active:text-zinc-200">
           <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
           Catalogue
@@ -95,37 +119,34 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
         <div className="text-[12px] text-zinc-500 tabular-nums">{pool.length} restants · {favCount} ♥</div>
       </div>
 
-      {/* swipeable card area */}
-      <div className="flex-1 relative overflow-hidden flex flex-col min-h-0">
-        <div className="flex-1 relative min-h-0">
+      {/* scrollable content */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
+        {/* swipeable image card */}
+        <div ref={cardRef} className="relative w-full aspect-[3/4] max-h-[60vh] overflow-hidden select-none">
           <div
-            className="absolute inset-0 select-none"
+            className="absolute inset-0"
             style={{
-              transform: entering ? 'scale(0.97)' : `translateX(${dx}px) rotate(${rotate}deg)`,
-              transition: exit ? 'transform 0.28s ease-out' : entering ? 'transform 0.15s ease-out' : drag ? 'none' : 'transform 0.2s ease-out',
-              opacity: exit ? 0.5 : 1,
+              transform: `translateX(${activeDx}px) rotate(${rotate}deg)`,
+              transition: exit ? 'transform 0.28s ease-out, opacity 0.28s' : dx ? 'none' : 'transform 0.2s ease-out',
+              opacity: exit ? 0.4 : 1,
+              transformOrigin: 'center 80%',
             }}
-            onTouchStart={e => onStart(e.touches[0].clientX, e.touches[0].clientY)}
-            onMouseDown={e => { e.preventDefault(); onStart(e.clientX, e.clientY) }}
-            onMouseMove={e => { if (drag) onMove(e.clientX, e.clientY) }}
-            onMouseUp={onEnd}
-            onMouseLeave={() => { if (drag) onEnd() }}
           >
             {show.header_image
               ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
               : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent opacity-80" />
 
             {/* LIKE stamp */}
-            <div className="absolute top-12 left-8 border-[4px] border-emerald-400 rounded-2xl px-5 py-2 rotate-[-15deg] pointer-events-none"
-              style={{ opacity: likeOpacity, transition: drag ? 'none' : 'opacity 0.15s' }}>
-              <span className="text-emerald-400 text-[36px] font-[800] tracking-wider">LIKE</span>
+            <div className="absolute top-1/3 left-8 border-[4px] border-emerald-400 rounded-2xl px-6 py-2 rotate-[-15deg] pointer-events-none"
+              style={{ opacity: likeOpacity }}>
+              <span className="text-emerald-400 text-[40px] font-[800] tracking-wider">LIKE</span>
             </div>
 
             {/* NOPE stamp */}
-            <div className="absolute top-12 right-8 border-[4px] border-red-400 rounded-2xl px-5 py-2 rotate-[15deg] pointer-events-none"
-              style={{ opacity: nopeOpacity, transition: drag ? 'none' : 'opacity 0.15s' }}>
-              <span className="text-red-400 text-[36px] font-[800] tracking-wider">NOPE</span>
+            <div className="absolute top-1/3 right-8 border-[4px] border-red-400 rounded-2xl px-6 py-2 rotate-[15deg] pointer-events-none"
+              style={{ opacity: nopeOpacity }}>
+              <span className="text-red-400 text-[40px] font-[800] tracking-wider">NOPE</span>
             </div>
 
             {show.coup_coeur > 0 && (
@@ -137,24 +158,29 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
           </div>
         </div>
 
-        {/* info below the image */}
-        <div className="flex-shrink-0 px-5 pb-2 pt-3 relative z-10 -mt-16">
-          <div className="text-[12px] text-zinc-400 mb-1">{show.genre || '—'}</div>
-          <div className="font-[600] text-[24px] leading-snug text-white line-clamp-2" style={{ fontFamily: '"Fraunces", serif' }}>{show.name}</div>
-          <div className="text-[14px] text-zinc-300/80 mt-2">{show.heure || '—'} {show.duration && `· ${show.duration}`} · {show.theatre_name}</div>
-          {show.content && <div className="text-[13px] text-zinc-400/80 mt-2.5 line-clamp-3 leading-relaxed">{show.content}</div>}
-          {show.off_url && <a href={show.off_url} target="_blank" onClick={e=>e.stopPropagation()} className="text-rose-300/80 text-[12px] mt-2 inline-block">Plus d'infos →</a>}
+        {/* show info */}
+        <div className="px-5 pt-1 pb-32">
+          <div className="text-[12px] text-zinc-500 mb-1.5">{show.genre || '—'}</div>
+          <h2 className="font-[600] text-[26px] leading-snug text-white" style={{ fontFamily: '"Fraunces", serif' }}>{show.name}</h2>
+          <div className="text-[14px] text-zinc-300/80 mt-2.5">
+            {show.heure || '—'} {show.duration && `· ${show.duration}`}
+          </div>
+          <div className="text-[14px] text-zinc-400 mt-1">{show.theatre_name}{show.salle && ` · ${show.salle}`}</div>
+          <div className="text-[13px] text-zinc-500 mt-1">{show.dates}{show.relache && ` · relâche ${show.relache}`}</div>
+          {show.auteur && <div className="text-[13px] text-zinc-500 mt-1">Auteur : {show.auteur}</div>}
+          {show.content && <p className="text-[14px] text-zinc-300/80 mt-4 leading-relaxed whitespace-pre-wrap">{show.content}</p>}
+          {show.off_url && <a href={show.off_url} target="_blank" className="text-rose-300/80 text-[13px] mt-4 inline-block hover:underline">Voir sur festivaloffavignon.com →</a>}
         </div>
       </div>
 
-      {/* action buttons */}
-      <div className="flex-shrink-0 flex items-center justify-center gap-10 py-5 pb-8">
+      {/* fixed action buttons */}
+      <div className="flex-shrink-0 flex items-center justify-center gap-10 py-4 pb-8 bg-gradient-to-t from-[#0f0f16] via-[#0f0f16] to-transparent absolute bottom-0 inset-x-0 z-30 pt-10">
         <button onClick={() => doSwipe('left')}
-          className="w-[68px] h-[68px] rounded-full bg-zinc-800/80 border-2 border-red-400/40 flex items-center justify-center text-[28px] text-red-400 active:scale-90 transition-transform shadow-xl">
+          className="w-[68px] h-[68px] rounded-full bg-zinc-800/90 border-2 border-red-400/40 flex items-center justify-center text-[28px] text-red-400 active:scale-90 transition-transform shadow-xl backdrop-blur-sm">
           ✕
         </button>
         <button onClick={() => doSwipe('right')}
-          className="w-[68px] h-[68px] rounded-full bg-emerald-500/15 border-2 border-emerald-400/40 flex items-center justify-center text-[28px] text-emerald-400 active:scale-90 transition-transform shadow-xl">
+          className="w-[68px] h-[68px] rounded-full bg-emerald-500/15 border-2 border-emerald-400/40 flex items-center justify-center text-[28px] text-emerald-400 active:scale-90 transition-transform shadow-xl backdrop-blur-sm">
           ♥
         </button>
       </div>
