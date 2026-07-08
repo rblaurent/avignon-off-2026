@@ -12,12 +12,21 @@ const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; t
   { key: '13-soir',  dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
 
-function SwipeCard({ show, onSwipe, behind }: { show: Show, onSwipe: (dir: 'left'|'right') => void, behind?: boolean }) {
-  const cardRef = useRef<HTMLDivElement>(null)
+function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
+  pool: Show[], onLike: (id: string) => void, onNope: (id: string) => void, onClose: () => void, favCount: number, ignoredCount: number
+}) {
   const [drag, setDrag] = useState<{ startX: number, startY: number, x: number, y: number, swiping: boolean } | null>(null)
   const [exit, setExit] = useState<'left'|'right'|null>(null)
+  const [entering, setEntering] = useState(true)
 
-  const threshold = 100
+  const threshold = 80
+  const show = pool[0] || null
+
+  useEffect(() => {
+    setEntering(true)
+    const t = setTimeout(() => setEntering(false), 50)
+    return () => clearTimeout(t)
+  }, [show?.id])
 
   const onStart = useCallback((clientX: number, clientY: number) => {
     setDrag({ startX: clientX, startY: clientY, x: 0, y: 0, swiping: false })
@@ -33,15 +42,22 @@ function SwipeCard({ show, onSwipe, behind }: { show: Show, onSwipe: (dir: 'left
     })
   }, [])
 
+  const doSwipe = useCallback((dir: 'left'|'right') => {
+    if (!show) return
+    setExit(dir)
+    setTimeout(() => {
+      if (dir === 'right') onLike(show.id); else onNope(show.id)
+      setExit(null)
+    }, 280)
+  }, [show, onLike, onNope])
+
   const onEnd = useCallback(() => {
     if (!drag) return
     if (Math.abs(drag.x) > threshold) {
-      const dir = drag.x > 0 ? 'right' : 'left' as const
-      setExit(dir)
-      setTimeout(() => onSwipe(dir), 300)
+      doSwipe(drag.x > 0 ? 'right' : 'left')
     }
     setDrag(null)
-  }, [drag, onSwipe])
+  }, [drag, doSwipe])
 
   useEffect(() => {
     if (!drag?.swiping) return
@@ -52,64 +68,95 @@ function SwipeCard({ show, onSwipe, behind }: { show: Show, onSwipe: (dir: 'left
     return () => { window.removeEventListener('touchmove', handleMove); window.removeEventListener('touchend', handleEnd) }
   }, [drag?.swiping, onMove, onEnd])
 
-  const dx = exit === 'left' ? -500 : exit === 'right' ? 500 : drag?.x || 0
-  const dy = exit ? -50 : drag?.y || 0
-  const rotate = dx * 0.06
-  const opacity = exit ? 0 : 1
+  const dx = exit === 'left' ? -window.innerWidth : exit === 'right' ? window.innerWidth : drag?.x || 0
+  const rotate = dx * 0.04
   const likeOpacity = Math.max(0, Math.min(1, dx / threshold))
   const nopeOpacity = Math.max(0, Math.min(1, -dx / threshold))
 
-  if (behind) {
+  if (!show) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[88vw] max-w-[420px] aspect-[3/4] rounded-[24px] bg-zinc-900 ring-1 ring-white/[0.06] scale-[0.94] opacity-60" />
+      <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col items-center justify-center" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
+        <div className="text-6xl mb-6">🎭</div>
+        <div className="text-[18px] font-[500] text-zinc-200 mb-2">Fini !</div>
+        <div className="text-[14px] text-zinc-500 mb-8">{favCount} favoris · {ignoredCount} ignorés</div>
+        <button onClick={onClose} className="px-6 py-3 rounded-full bg-zinc-800 text-zinc-200 text-[14px] font-[500] active:bg-zinc-700">Retour au catalogue</button>
       </div>
     )
   }
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 10 }}>
-      <div
-        ref={cardRef}
-        className="w-[88vw] max-w-[420px] aspect-[3/4] rounded-[24px] overflow-hidden bg-zinc-900 ring-1 ring-white/[0.08] shadow-[0_20px_60px_rgba(0,0,0,.7)] select-none touch-pan-y relative"
-        style={{
-          transform: `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`,
-          transition: exit || !drag ? 'transform 0.3s ease, opacity 0.3s ease' : 'none',
-          opacity,
-          cursor: 'grab',
-        }}
-        onTouchStart={e => onStart(e.touches[0].clientX, e.touches[0].clientY)}
-        onMouseDown={e => { e.preventDefault(); onStart(e.clientX, e.clientY) }}
-        onMouseMove={e => { if (drag) onMove(e.clientX, e.clientY) }}
-        onMouseUp={onEnd}
-        onMouseLeave={() => { if (drag) onEnd() }}
-      >
-        {show.header_image
-          ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
-          : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-6xl">🎭</div>}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-90" />
+    <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col overflow-hidden" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
+      {/* top bar */}
+      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 relative z-20">
+        <button onClick={onClose} className="text-zinc-400 text-[14px] flex items-center gap-1.5 active:text-zinc-200">
+          <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+          Catalogue
+        </button>
+        <div className="text-[12px] text-zinc-500 tabular-nums">{pool.length} restants · {favCount} ♥</div>
+      </div>
 
-        {/* LIKE stamp */}
-        <div className="absolute top-8 left-6 border-[3px] border-emerald-400 rounded-xl px-4 py-1 rotate-[-15deg] pointer-events-none"
-          style={{ opacity: likeOpacity, transition: drag ? 'none' : 'opacity 0.2s' }}>
-          <span className="text-emerald-400 text-[28px] font-[800] tracking-wider">LIKE</span>
+      {/* swipeable card area */}
+      <div className="flex-1 relative overflow-hidden flex flex-col min-h-0">
+        <div className="flex-1 relative min-h-0">
+          <div
+            className="absolute inset-0 select-none"
+            style={{
+              transform: entering ? 'scale(0.97)' : `translateX(${dx}px) rotate(${rotate}deg)`,
+              transition: exit ? 'transform 0.28s ease-out' : entering ? 'transform 0.15s ease-out' : drag ? 'none' : 'transform 0.2s ease-out',
+              opacity: exit ? 0.5 : 1,
+            }}
+            onTouchStart={e => onStart(e.touches[0].clientX, e.touches[0].clientY)}
+            onMouseDown={e => { e.preventDefault(); onStart(e.clientX, e.clientY) }}
+            onMouseMove={e => { if (drag) onMove(e.clientX, e.clientY) }}
+            onMouseUp={onEnd}
+            onMouseLeave={() => { if (drag) onEnd() }}
+          >
+            {show.header_image
+              ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+              : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent" />
+
+            {/* LIKE stamp */}
+            <div className="absolute top-12 left-8 border-[4px] border-emerald-400 rounded-2xl px-5 py-2 rotate-[-15deg] pointer-events-none"
+              style={{ opacity: likeOpacity, transition: drag ? 'none' : 'opacity 0.15s' }}>
+              <span className="text-emerald-400 text-[36px] font-[800] tracking-wider">LIKE</span>
+            </div>
+
+            {/* NOPE stamp */}
+            <div className="absolute top-12 right-8 border-[4px] border-red-400 rounded-2xl px-5 py-2 rotate-[15deg] pointer-events-none"
+              style={{ opacity: nopeOpacity, transition: drag ? 'none' : 'opacity 0.15s' }}>
+              <span className="text-red-400 text-[36px] font-[800] tracking-wider">NOPE</span>
+            </div>
+
+            {show.coup_coeur > 0 && (
+              <div className="absolute top-4 left-4 text-[12px] bg-amber-300 text-zinc-900 px-3 py-1 rounded-full font-[600] shadow-md pointer-events-none"
+                style={{ opacity: Math.max(0, 1 - likeOpacity - nopeOpacity) }}>
+                ♥ {show.coup_coeur}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* NOPE stamp */}
-        <div className="absolute top-8 right-6 border-[3px] border-red-400 rounded-xl px-4 py-1 rotate-[15deg] pointer-events-none"
-          style={{ opacity: nopeOpacity, transition: drag ? 'none' : 'opacity 0.2s' }}>
-          <span className="text-red-400 text-[28px] font-[800] tracking-wider">NOPE</span>
+        {/* info below the image */}
+        <div className="flex-shrink-0 px-5 pb-2 pt-3 relative z-10 -mt-16">
+          <div className="text-[12px] text-zinc-400 mb-1">{show.genre || '—'}</div>
+          <div className="font-[600] text-[24px] leading-snug text-white line-clamp-2" style={{ fontFamily: '"Fraunces", serif' }}>{show.name}</div>
+          <div className="text-[14px] text-zinc-300/80 mt-2">{show.heure || '—'} {show.duration && `· ${show.duration}`} · {show.theatre_name}</div>
+          {show.content && <div className="text-[13px] text-zinc-400/80 mt-2.5 line-clamp-3 leading-relaxed">{show.content}</div>}
+          {show.off_url && <a href={show.off_url} target="_blank" onClick={e=>e.stopPropagation()} className="text-rose-300/80 text-[12px] mt-2 inline-block">Plus d'infos →</a>}
         </div>
+      </div>
 
-        {show.coup_coeur > 0 && <div className="absolute top-4 left-4 text-[11px] bg-amber-300 text-zinc-900 px-2.5 py-[3px] rounded-full font-[600] shadow-md pointer-events-none" style={{ opacity: 1 - likeOpacity - nopeOpacity }}>♥ {show.coup_coeur}</div>}
-
-        <div className="absolute bottom-0 inset-x-0 px-5 pb-5 pt-12 pointer-events-none">
-          <div className="text-[12px] text-zinc-300/85 mb-1">{show.genre || '—'}</div>
-          <div className="font-[600] text-[22px] leading-snug line-clamp-2 text-white" style={{ fontFamily: '"Fraunces", serif' }}>{show.name}</div>
-          <div className="text-[13px] text-zinc-300/75 mt-2">{show.heure || '—'} {show.duration && `· ${show.duration}`}</div>
-          <div className="text-[12px] text-zinc-400 mt-1">{show.theatre_name}</div>
-          {show.content && <div className="text-[12px] text-zinc-400/80 mt-3 line-clamp-3 leading-relaxed">{show.content}</div>}
-        </div>
+      {/* action buttons */}
+      <div className="flex-shrink-0 flex items-center justify-center gap-10 py-5 pb-8">
+        <button onClick={() => doSwipe('left')}
+          className="w-[68px] h-[68px] rounded-full bg-zinc-800/80 border-2 border-red-400/40 flex items-center justify-center text-[28px] text-red-400 active:scale-90 transition-transform shadow-xl">
+          ✕
+        </button>
+        <button onClick={() => doSwipe('right')}
+          className="w-[68px] h-[68px] rounded-full bg-emerald-500/15 border-2 border-emerald-400/40 flex items-center justify-center text-[28px] text-emerald-400 active:scale-90 transition-transform shadow-xl">
+          ♥
+        </button>
       </div>
     </div>
   )
@@ -324,40 +371,7 @@ export default function App() {
           </header>
 
           <main className="px-5 sm:px-10 lg:px-14 py-6 sm:py-12">
-            {tinderMode ? (
-              <div className="flex flex-col items-center">
-                <div className="relative w-full max-w-[460px] aspect-[3/4] mb-6">
-                  {tinderPool.length > 1 && <SwipeCard key={'bg-'+tinderPool[1].id} show={tinderPool[1]} onSwipe={()=>{}} behind />}
-                  {tinderPool.length > 0 ? (
-                    <SwipeCard
-                      key={tinderPool[0].id}
-                      show={tinderPool[0]}
-                      onSwipe={(dir) => {
-                        if (dir === 'right') toggleFav(tinderPool[0].id)
-                        else toggleIgnored(tinderPool[0].id)
-                      }}
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center text-zinc-500">
-                        <div className="text-4xl mb-4">🎭</div>
-                        <div className="text-[15px] font-[500]">Plus de spectacles à trier !</div>
-                        <div className="text-[13px] mt-2">{fav.length} favoris · {ignored.length} ignorés</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {tinderPool.length > 0 && (
-                  <div className="flex items-center gap-6">
-                    <button onClick={() => toggleIgnored(tinderPool[0].id)}
-                      className="w-[60px] h-[60px] rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[24px] text-red-400 active:scale-90 transition-transform shadow-lg hover:bg-zinc-700">✕</button>
-                    <div className="text-[13px] text-zinc-500 tabular-nums min-w-[80px] text-center">{tinderPool.length} restants</div>
-                    <button onClick={() => toggleFav(tinderPool[0].id)}
-                      className="w-[60px] h-[60px] rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-[24px] text-emerald-400 active:scale-90 transition-transform shadow-lg hover:bg-emerald-500/30">♥</button>
-                  </div>
-                )}
-              </div>
-            ) : (
+            {!tinderMode && (
             <div className="grid gap-x-4 sm:gap-x-7 gap-y-7 sm:gap-y-11 grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 max-w-[1400px]">
               {filtered.slice(0,200).map(s => {
                 const isFav = fav.includes(s.id)
@@ -412,6 +426,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* tinder fullscreen */}
+      {tinderMode && <TinderView pool={tinderPool} onLike={toggleFav} onNope={toggleIgnored} onClose={()=>setTinderMode(false)} favCount={fav.length} ignoredCount={ignored.length} />}
 
       {/* detail */}
       {selected && (
