@@ -12,45 +12,53 @@ const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; t
   { key: '13-soir',  dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
 
-function CardImage({ show }: { show: Show }) {
-  return show.header_image
-    ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
-    : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>
-}
-
 function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, genre, setGenre, genres }: {
   pool: Show[], onLike: (id: string) => void, onNope: (id: string) => void, onClose: () => void, favCount: number, ignoredCount: number,
   genre: string, setGenre: (g: string) => void, genres: string[]
 }) {
   const dragRef = useRef<{ startX: number, startY: number, x: number, decided: boolean, isSwipe: boolean | null } | null>(null)
   const [dx, setDx] = useState(0)
-  const [exitCard, setExitCard] = useState<{ id: string, dir: 'left'|'right', show: Show } | null>(null)
+  const [exitCard, setExitCard] = useState<{ dir: 'left'|'right', show: Show, startDx: number, launched: boolean } | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const threshold = 80
   const show = pool[0] || null
   const next = pool[1] || null
+  const isExiting = exitCard !== null
+  const topShow = isExiting ? exitCard.show : show
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [show?.id])
 
+  // Two-phase exit: first render at drag position, then launch off-screen
+  useEffect(() => {
+    if (exitCard && !exitCard.launched) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setExitCard(ec => ec ? { ...ec, launched: true } : null)
+        })
+      })
+    }
+  }, [exitCard])
+
   const doSwipe = useCallback((dir: 'left'|'right') => {
-    if (!show) return
-    setExitCard({ id: show.id, dir, show })
+    if (!show || isExiting) return
+    const currentDx = dragRef.current?.x || 0
+    setExitCard({ dir, show, startDx: currentDx, launched: false })
     setDx(0)
     dragRef.current = null
     setTimeout(() => {
       if (dir === 'right') onLike(show.id); else onNope(show.id)
       setExitCard(null)
-    }, 300)
-  }, [show, onLike, onNope])
+    }, 350)
+  }, [show, isExiting, onLike, onNope])
 
   useEffect(() => {
     const card = cardRef.current
     if (!card) return
 
     const onTouchStart = (e: TouchEvent) => {
-      if (exitCard) return
+      if (isExiting) return
       const t = e.touches[0]
       dragRef.current = { startX: t.clientX, startY: t.clientY, x: 0, decided: false, isSwipe: null }
     }
@@ -99,15 +107,19 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
       card.removeEventListener('touchmove', onTouchMove)
       card.removeEventListener('touchend', onTouchEnd)
     }
-  }, [doSwipe, exitCard])
+  }, [doSwipe, isExiting])
 
-  const activeDx = dx
-  const rotate = activeDx * 0.04
-  const likeOpacity = Math.max(0, Math.min(1, activeDx / threshold))
-  const nopeOpacity = Math.max(0, Math.min(1, -activeDx / threshold))
+  const dragRotate = dx * 0.04
+  const likeOpacity = Math.max(0, Math.min(1, dx / threshold))
+  const nopeOpacity = Math.max(0, Math.min(1, -dx / threshold))
 
-  const exitDx = exitCard ? (exitCard.dir === 'left' ? -window.innerWidth : window.innerWidth) : 0
-  const exitRotate = exitDx * 0.04
+  // Behind card: scale up when exiting
+  const behindScale = isExiting ? 1 : 0.95
+  const behindOpacity = isExiting ? 1 : 0.6
+
+  // Exit card position
+  const exitX = exitCard ? (exitCard.launched ? (exitCard.dir === 'left' ? -window.innerWidth * 1.5 : window.innerWidth * 1.5) : exitCard.startDx) : 0
+  const exitRotate = exitCard ? (exitCard.launched ? (exitCard.dir === 'left' ? -15 : 15) : exitCard.startDx * 0.04) : 0
 
   if (!show && !exitCard) {
     return (
@@ -120,7 +132,8 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
     )
   }
 
-  const displayShow = show || exitCard?.show
+  // Info shows the next card during exit, current card otherwise
+  const infoShow = isExiting ? (next || exitCard.show) : show
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
@@ -141,23 +154,33 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
       <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
         {/* card stack */}
         <div ref={cardRef} className="relative w-full aspect-[3/4] max-h-[60vh] overflow-hidden select-none">
-          {/* next card (behind, preloaded) */}
-          {next && !exitCard && (
-            <div className="absolute inset-0" style={{ zIndex: 1 }}>
-              <CardImage show={next} />
+
+          {/* LAYER 1: next card behind (preloaded, scaled down) */}
+          {next && (
+            <div className="absolute inset-0" style={{
+              zIndex: 1,
+              transform: `scale(${behindScale})`,
+              opacity: behindOpacity,
+              transition: 'transform 0.3s ease-out, opacity 0.3s ease-out',
+            }}>
+              {next.header_image
+                ? <img src={next.header_image} alt={next.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent opacity-80" />
             </div>
           )}
 
-          {/* current card (swipeable) */}
-          {show && (
+          {/* LAYER 2: current card (follows finger) - hidden during exit */}
+          {show && !isExiting && (
             <div className="absolute inset-0" style={{
               zIndex: 2,
-              transform: `translateX(${activeDx}px) rotate(${rotate}deg)`,
+              transform: `translateX(${dx}px) rotate(${dragRotate}deg)`,
               transition: dx ? 'none' : 'transform 0.2s ease-out',
               transformOrigin: 'center 80%',
             }}>
-              <CardImage show={show} />
+              {show.header_image
+                ? <img src={show.header_image} alt={show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent opacity-80" />
 
               <div className="absolute top-1/3 left-8 border-[4px] border-emerald-400 rounded-2xl px-6 py-2 rotate-[-15deg] pointer-events-none"
@@ -178,16 +201,18 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
             </div>
           )}
 
-          {/* exiting card (animating out, on top) */}
+          {/* LAYER 3: exiting card (flies off from drag position) */}
           {exitCard && (
             <div className="absolute inset-0" style={{
               zIndex: 3,
-              transform: `translateX(${exitDx}px) rotate(${exitRotate}deg)`,
-              transition: 'transform 0.3s ease-out, opacity 0.25s ease-out',
-              opacity: 0,
+              transform: `translateX(${exitX}px) rotate(${exitRotate}deg)`,
+              transition: exitCard.launched ? 'transform 0.35s ease-in, opacity 0.3s ease-in' : 'none',
+              opacity: exitCard.launched ? 0 : 1,
               transformOrigin: 'center 80%',
             }}>
-              <CardImage show={exitCard.show} />
+              {exitCard.show.header_image
+                ? <img src={exitCard.show.header_image} alt={exitCard.show.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                : <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900 text-[80px]">🎭</div>}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f16] via-transparent to-transparent opacity-80" />
 
               <div className="absolute top-1/3 left-8 border-[4px] border-emerald-400 rounded-2xl px-6 py-2 rotate-[-15deg] pointer-events-none"
@@ -203,29 +228,29 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, gen
         </div>
 
         {/* show info */}
-        {displayShow && (
+        {infoShow && (
           <div className="px-5 pt-1 pb-32">
-            <div className="text-[12px] text-zinc-500 mb-1.5">{displayShow.genre || '—'}</div>
-            <h2 className="font-[600] text-[26px] leading-snug text-white" style={{ fontFamily: '"Fraunces", serif' }}>{displayShow.name}</h2>
+            <div className="text-[12px] text-zinc-500 mb-1.5">{infoShow.genre || '—'}</div>
+            <h2 className="font-[600] text-[26px] leading-snug text-white" style={{ fontFamily: '"Fraunces", serif' }}>{infoShow.name}</h2>
             <div className="text-[14px] text-zinc-300/80 mt-2.5">
-              {displayShow.heure || '—'} {displayShow.duration && `· ${displayShow.duration}`}
+              {infoShow.heure || '—'} {infoShow.duration && `· ${infoShow.duration}`}
             </div>
-            <div className="text-[14px] text-zinc-400 mt-1">{displayShow.theatre_name}{displayShow.salle && ` · ${displayShow.salle}`}</div>
-            <div className="text-[13px] text-zinc-500 mt-1">{displayShow.dates}{displayShow.relache && ` · relâche ${displayShow.relache}`}</div>
-            {displayShow.auteur && <div className="text-[13px] text-zinc-500 mt-1">Auteur : {displayShow.auteur}</div>}
-            {displayShow.content && <p className="text-[14px] text-zinc-300/80 mt-4 leading-relaxed whitespace-pre-wrap">{displayShow.content}</p>}
-            {displayShow.off_url && <a href={displayShow.off_url} target="_blank" className="text-rose-300/80 text-[13px] mt-4 inline-block hover:underline">Voir sur festivaloffavignon.com →</a>}
+            <div className="text-[14px] text-zinc-400 mt-1">{infoShow.theatre_name}{infoShow.salle && ` · ${infoShow.salle}`}</div>
+            <div className="text-[13px] text-zinc-500 mt-1">{infoShow.dates}{infoShow.relache && ` · relâche ${infoShow.relache}`}</div>
+            {infoShow.auteur && <div className="text-[13px] text-zinc-500 mt-1">Auteur : {infoShow.auteur}</div>}
+            {infoShow.content && <p className="text-[14px] text-zinc-300/80 mt-4 leading-relaxed whitespace-pre-wrap">{infoShow.content}</p>}
+            {infoShow.off_url && <a href={infoShow.off_url} target="_blank" className="text-rose-300/80 text-[13px] mt-4 inline-block hover:underline">Voir sur festivaloffavignon.com →</a>}
           </div>
         )}
       </div>
 
       {/* fixed action buttons */}
       <div className="flex-shrink-0 flex items-center justify-center gap-10 py-4 pb-8 bg-gradient-to-t from-[#0f0f16] via-[#0f0f16] to-transparent absolute bottom-0 inset-x-0 z-30 pt-10">
-        <button onClick={() => doSwipe('left')} disabled={!!exitCard}
+        <button onClick={() => doSwipe('left')} disabled={isExiting}
           className="w-[68px] h-[68px] rounded-full bg-zinc-800/90 border-2 border-red-400/40 flex items-center justify-center text-[28px] text-red-400 active:scale-90 transition-transform shadow-xl backdrop-blur-sm">
           ✕
         </button>
-        <button onClick={() => doSwipe('right')} disabled={!!exitCard}
+        <button onClick={() => doSwipe('right')} disabled={isExiting}
           className="w-[68px] h-[68px] rounded-full bg-emerald-500/15 border-2 border-emerald-400/40 flex items-center justify-center text-[28px] text-emerald-400 active:scale-90 transition-transform shadow-xl backdrop-blur-sm">
           ♥
         </button>
