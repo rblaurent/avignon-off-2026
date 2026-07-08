@@ -12,8 +12,9 @@ const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; t
   { key: '13-soir',  dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
 
-function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
-  pool: Show[], onLike: (id: string) => void, onNope: (id: string) => void, onClose: () => void, favCount: number, ignoredCount: number
+function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount, genre, setGenre, genres }: {
+  pool: Show[], onLike: (id: string) => void, onNope: (id: string) => void, onClose: () => void, favCount: number, ignoredCount: number,
+  genre: string, setGenre: (g: string) => void, genres: string[]
 }) {
   const dragRef = useRef<{ startX: number, startY: number, x: number, decided: boolean, isSwipe: boolean | null } | null>(null)
   const [dx, setDx] = useState(0)
@@ -111,12 +112,16 @@ function TinderView({ pool, onLike, onNope, onClose, favCount, ignoredCount }: {
   return (
     <div className="fixed inset-0 z-50 bg-[#0f0f16] flex flex-col" style={{fontFamily:'"DM Sans", ui-sans-serif, system-ui, sans-serif'}}>
       {/* top bar */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 relative z-20 bg-[#0f0f16]">
-        <button onClick={onClose} className="text-zinc-400 text-[14px] flex items-center gap-1.5 active:text-zinc-200">
-          <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
-          Catalogue
+      <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0 relative z-20 bg-[#0f0f16]">
+        <button onClick={onClose} className="text-zinc-400 text-[14px] flex items-center gap-1 active:text-zinc-200 flex-shrink-0">
+          <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
         </button>
-        <div className="text-[12px] text-zinc-500 tabular-nums">{pool.length} restants · {favCount} ♥</div>
+        <select value={genre} onChange={e=>setGenre(e.target.value)}
+          className="text-[12px] bg-[#1a1a24] border border-zinc-800 rounded-full px-3 py-[7px] text-zinc-300 focus:outline-none focus:border-zinc-600 max-w-[180px] truncate mx-2">
+          <option value="">Tous les genres</option>
+          {genres.map(g=><option key={g} value={g}>{g}</option>)}
+        </select>
+        <div className="text-[11px] text-zinc-500 tabular-nums flex-shrink-0">{pool.length} · {favCount} ♥</div>
       </div>
 
       {/* scrollable content */}
@@ -454,7 +459,7 @@ export default function App() {
       )}
 
       {/* tinder fullscreen */}
-      {tinderMode && <TinderView pool={tinderPool} onLike={toggleFav} onNope={toggleIgnored} onClose={()=>setTinderMode(false)} favCount={fav.length} ignoredCount={ignored.length} />}
+      {tinderMode && <TinderView pool={tinderPool} onLike={toggleFav} onNope={toggleIgnored} onClose={()=>setTinderMode(false)} favCount={fav.length} ignoredCount={ignored.length} genre={genre} setGenre={setGenre} genres={genres} />}
 
       {/* detail */}
       {selected && (
