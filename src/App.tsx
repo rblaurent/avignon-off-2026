@@ -4,12 +4,12 @@ import showsData from './shows.json'
 type Show = typeof showsData[number]
 type SlotKey = '12-matin' | '12-aprem' | '12-soir' | '13-matin' | '13-aprem' | '13-soir'
 const SLOTS: { key: SlotKey; dayShort: string; dayLong: string; label: string; time: string; minH: number; maxH: number }[] = [
-  { key: '12-matin', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
-  { key: '12-aprem', dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
-  { key: '12-soir',  dayShort: 'Sam 12', dayLong: 'Samedi 12 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
-  { key: '13-matin', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
-  { key: '13-aprem', dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
-  { key: '13-soir',  dayShort: 'Dim 13', dayLong: 'Dimanche 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
+  { key: '12-matin', dayShort: 'Dim 12', dayLong: 'Dimanche 12 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
+  { key: '12-aprem', dayShort: 'Dim 12', dayLong: 'Dimanche 12 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
+  { key: '12-soir',  dayShort: 'Dim 12', dayLong: 'Dimanche 12 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
+  { key: '13-matin', dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Matin', time: '< 12h', minH: 0, maxH: 11.99 },
+  { key: '13-aprem', dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Après-midi', time: '12h – 15h30', minH: 12, maxH: 15.49 },
+  { key: '13-soir',  dayShort: 'Lun 13', dayLong: 'Lundi 13 juillet', label: 'Soirée', time: '15h30 +', minH: 15.5, maxH: 99 },
 ]
 
 function parseHour(h: string | null) {
@@ -144,7 +144,7 @@ export default function App() {
             <div className="px-5 sm:px-10 lg:px-14 pt-5 sm:pt-9 pb-4 sm:pb-7">
               <div className="flex items-baseline gap-3 sm:gap-4 flex-wrap mb-4 sm:mb-7">
                 <h1 className="display text-[28px] sm:text-[40px] font-[600] tracking-[-0.015em]">Avignon <span className="text-zinc-500 font-[500]">Off</span></h1>
-                <span className="text-zinc-500 text-[13px] sm:text-[15px]">12 — 13 juillet 2026</span>
+                <span className="text-zinc-500 text-[13px] sm:text-[15px]">Dim 12 — Lun 13 juillet 2026</span>
               </div>
 
               <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
